@@ -72,20 +72,20 @@ int timer_activo = 0;
 struct IO
 {
     /* inputs */
-    unsigned int ba  : 1;
-    unsigned int bc  : 1;
-    unsigned int bp  : 1;
-    unsigned int be  : 1;
-    unsigned int br  : 1;
-    unsigned int fca : 1;
-    unsigned int fcc : 1;
+    unsigned int ba  : 1; //boton abierto
+    unsigned int bc  : 1; //boton cerrado
+    unsigned int bp  : 1; //boton pare
+    unsigned int be  : 1; // boton emergencia
+    unsigned int br  : 1; //boton reset
+    unsigned int fca : 1; // final de carrera abierto
+    unsigned int fcc : 1; //final de carrera cerrado
 
     /* outputs */
-    unsigned int ma     : 1;
-    unsigned int mc     : 1;
-    unsigned int buzzer : 1;
-    unsigned int lamp   : 1;
-    unsigned int ledR   : 1;
+    unsigned int ma     : 1; //motor abrir
+    unsigned int mc     : 1; //motor cerrado
+    unsigned int buzzer : 1; // buzzer
+    unsigned int lamp   : 1; //lamp
+    unsigned int ledR   : 1; // led para error
 
 } io;
 
@@ -180,6 +180,8 @@ void detener_timer(void)
 
 /* ===================== FSM STATES ===================== */
 
+/* ===================== FSM STATES ===================== */
+
 int func_ESTADO_INT(void)
 {
     ESTADO_ANTERIOR = ESTADO_ACTUAL;
@@ -191,29 +193,26 @@ int func_ESTADO_INT(void)
     io.lamp = lampOff;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (io.fca == Presionado && io.fcc == SinPresionar)
     {
-        if (io.fca == Presionado && io.fcc == SinPresionar)
-        {
-            printf("ESTADO ABIERTO\n");
-            return ESTADO_ABIERTO;
-        }
+        printf("ESTADO ABIERTO\n");
+        return ESTADO_ABIERTO;
+    }
 
-        if (io.fca == SinPresionar && io.fcc == Presionado)
-        {
-            printf("ESTADO CERRADO\n");
-            return ESTADO_CERRADO;
-        }
-        else if (io.fca == SinPresionar && io.fcc == SinPresionar)
-        {
-            printf("ESTADO DESCONOCIDO\n");
-            return ESTADO_DESCO;
-        }
-        else
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
+    if (io.fca == SinPresionar && io.fcc == Presionado)
+    {
+        printf("ESTADO CERRADO\n");
+        return ESTADO_CERRADO;
+    }
+    else if (io.fca == SinPresionar && io.fcc == SinPresionar)
+    {
+        printf("ESTADO DESCONOCIDO\n");
+        return ESTADO_DESCO;
+    }
+    else
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
     }
 }
 
@@ -228,45 +227,44 @@ int func_ESTADO_ABIERTO(void)
     io.lamp = lampON;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (timer_activo == 0)
     {
-        if (timer_activo == 0)
-        {
-            iniciar_timer_11s();
-        }
-
-        if (io.br == Presionado)
-        {
-            printf("ESTADO DE REINICIO\n");
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-
-        if (timer_activo && timer_11s == 0)
-        {
-            detener_timer();
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-
-        if (io.fca == Presionado && io.fcc == SinPresionar && io.bc == Presionado)
-        {
-            detener_timer();
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-        else if (io.fca == Presionado && io.fcc == SinPresionar && io.ba == Presionado)
-        {
-            detener_timer();
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-        else if (io.fca == Presionado && io.fcc == Presionado)
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
+        iniciar_timer_11s();
     }
+
+    //if (io.br == Presionado)
+    //{
+      //  printf("ESTADO DE REINICIO\n");
+        //printf("ESTADO CERRANDO\n");
+        //return ESTADO_CERRANDO;
+   // }
+
+    if (timer_activo && timer_11s == 0)
+    {
+        detener_timer();
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+
+    if (io.fca == Presionado && io.fcc == SinPresionar && io.bc == Presionado)
+    {
+        detener_timer();
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+    else if (io.fca == Presionado && io.fcc == SinPresionar && io.ba == Presionado)
+    {
+        detener_timer();
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+    else if (io.fca == Presionado && io.fcc == Presionado)
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
+    }
+
+    return ESTADO_ABIERTO;
 }
 
 int func_ESTADO_CERRADO(void)
@@ -280,30 +278,27 @@ int func_ESTADO_CERRADO(void)
     io.lamp = lampOff;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (io.fcc == Presionado && io.fca == SinPresionar && io.ma == Presionado)
     {
-        if (io.fcc == Presionado && io.fca == SinPresionar && io.ma == Presionado)
-        {
-            printf("ESTADO ABRIENDO\n");
-            return ESTADO_ABRIENDO;
-        }
+        printf("ESTADO ABRIENDO\n");
+        return ESTADO_ABRIENDO;
+    }
 
-        if (io.br == Presionado)
-        {
-            printf("ESTADO DE REINICIO\n");
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-        else if (io.fca == Presionado && io.ma == Presionado)
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
-        else
-        {
-            printf("ESTADO CERRADO\n");
-            return ESTADO_CERRADO;
-        }
+    if (io.br == Presionado)
+    {
+        printf("ESTADO DE REINICIO\n");
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+    else if (io.fca == Presionado && io.ma == Presionado)
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
+    }
+    else
+    {
+        printf("ESTADO CERRADO\n");
+        return ESTADO_CERRADO;
     }
 }
 
@@ -318,42 +313,39 @@ int func_ESTADO_ABRIENDO(void)
     io.lamp = lampOff;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (io.fca == Presionado && io.fcc == SinPresionar)
     {
-        if (io.fca == Presionado && io.fcc == SinPresionar)
-        {
-            printf("ESTADO ABIERTO\n");
-            return ESTADO_ABIERTO;
-        }
+        printf("ESTADO ABIERTO\n");
+        return ESTADO_ABIERTO;
+    }
 
-        if (io.br == Presionado)
-        {
-            printf("ESTADO DE REINICIO\n");
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-        else if (io.fca == SinPresionar &&
-                 io.fcc == SinPresionar &&
-                 (io.ba || io.bc || io.be || io.bp))
-        {
-            printf("ESTADO STOP\n");
-            return ESTADO_STOP;
-        }
-        else if (io.fca == Presionado && io.fcc == Presionado)
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
-        else if (io.fca == SinPresionar && io.fcc == Presionado)
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
-        else
-        {
-            printf("ESTADO ABRIENDO\n");
-            return ESTADO_ABRIENDO;
-        }
+    if (io.br == Presionado)
+    {
+        printf("ESTADO DE REINICIO\n");
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+    else if (io.fca == SinPresionar &&
+             io.fcc == SinPresionar &&
+             (io.ba || io.bc || io.be || io.bp))
+    {
+        printf("ESTADO STOP\n");
+        return ESTADO_STOP;
+    }
+    else if (io.fca == Presionado && io.fcc == Presionado)
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
+    }
+    else if (io.fca == SinPresionar && io.fcc == Presionado)
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
+    }
+    else
+    {
+        printf("ESTADO ABRIENDO\n");
+        return ESTADO_ABRIENDO;
     }
 }
 
@@ -368,25 +360,24 @@ int func_ESTADO_CERRANDO(void)
     io.lamp = lampOff;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (io.fca == SinPresionar && io.fcc == Presionado)
     {
-        if (io.fca == SinPresionar && io.fcc == Presionado)
-        {
-            printf("ESTADO CERRADO\n");
-            return ESTADO_CERRADO;
-        }
-        else if ((io.fca == SinPresionar && io.fcc == SinPresionar) ||
-                 (io.ba || io.bc || io.be || io.bp))
-        {
-            printf("ESTADO STOP\n");
-            return ESTADO_STOP;
-        }
-        else if (io.fca == SinPresionar && io.fcc == Presionado)
-        {
-            printf("ESTADO ERROR\n");
-            return ESTADO_ERROR;
-        }
+        printf("ESTADO CERRADO\n");
+        return ESTADO_CERRADO;
     }
+    else if ((io.fca == SinPresionar && io.fcc == SinPresionar) ||
+             (io.ba || io.bc || io.be || io.bp))
+    {
+        printf("ESTADO STOP\n");
+        return ESTADO_STOP;
+    }
+    else if (io.fca == SinPresionar && io.fcc == Presionado)
+    {
+        printf("ESTADO ERROR\n");
+        return ESTADO_ERROR;
+    }
+
+    return ESTADO_CERRANDO;
 }
 
 int func_ESTADO_ERROR(void)
@@ -400,15 +391,14 @@ int func_ESTADO_ERROR(void)
     ESTADO_ANTERIOR = ESTADO_ACTUAL;
     ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
 
-    for (;;)
+    if (io.br == Presionado)
     {
-        if (io.br == Presionado)
-        {
-            printf("ESTADO DE REINICIO\n");
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
+        printf("ESTADO DE REINICIO\n");
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
     }
+
+    return ESTADO_ERROR;
 }
 
 int func_ESTADO_DESCO(void)
@@ -422,11 +412,8 @@ int func_ESTADO_DESCO(void)
     io.lamp = lampOff;
     io.ledR = LEDON;
 
-    for (;;)
-    {
-        printf("ESTADO CERRANDO\n");
-        return ESTADO_CERRANDO;
-    }
+    printf("ESTADO CERRANDO\n");
+    return ESTADO_CERRANDO;
 }
 
 int func_ESTADO_STOP(void)
@@ -440,33 +427,33 @@ int func_ESTADO_STOP(void)
     io.lamp = lampOff;
     io.ledR = LEDOFF;
 
-    for (;;)
+    if (io.ba == Presionado &&
+        io.bc == SinPresionar &&
+        io.fca == SinPresionar &&
+        io.fcc == SinPresionar)
     {
-        if (io.ba == Presionado &&
-            io.bc == SinPresionar &&
-            io.fca == SinPresionar &&
-            io.fcc == SinPresionar)
-        {
-            printf("ESTADO ABRIENDO\n");
-            return ESTADO_ABRIENDO;
-        }
-
-        if (io.br == Presionado)
-        {
-            printf("ESTADO DE REINICIO\n");
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
-        else if (io.ba == SinPresionar &&
-                 io.bc == Presionado &&
-                 io.fca == SinPresionar &&
-                 io.fcc == SinPresionar)
-        {
-            printf("ESTADO CERRANDO\n");
-            return ESTADO_CERRANDO;
-        }
+        printf("ESTADO ABRIENDO\n");
+        return ESTADO_ABRIENDO;
     }
+
+    if (io.br == Presionado)
+    {
+        printf("ESTADO DE REINICIO\n");
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+    else if (io.ba == SinPresionar &&
+             io.bc == Presionado &&
+             io.fca == SinPresionar &&
+             io.fcc == SinPresionar)
+    {
+        printf("ESTADO CERRANDO\n");
+        return ESTADO_CERRANDO;
+    }
+
+    return ESTADO_STOP;
 }
+
 
 /* ===================== MAIN ===================== */
 
