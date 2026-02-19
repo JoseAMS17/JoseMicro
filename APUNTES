@@ -1,0 +1,95 @@
+https://docs.micropython.org/en/latest/esp32/quickref.html#timers
+
+
+
+from machine import Timer
+
+tim0 = Timer(0)
+tim0.init(period=5000, mode=Timer.ONE_SHOT, callback=lambda t:print(0))
+
+tim1 = Timer(1)
+tim1.init(period=2000, mode=Timer.PERIODIC, callback=lambda t:print(1))
+
+TIEMPO SE CAMBIA EN LA PARTE DE PERIOD 
+t:print("funcion que se quiera ejecutar ")
+
+
+
+_______________________________________________________________________________________________________________________________________________________________________________________
+gpio de gpt
+
+/* ===================== GPIO INPUTS ===================== */
+
+#define PIN_BA     GPIO_NUM_13
+#define PIN_BC     GPIO_NUM_12
+#define PIN_BP     GPIO_NUM_14
+#define PIN_BE     GPIO_NUM_27
+#define PIN_BR     GPIO_NUM_26
+#define PIN_FCA    GPIO_NUM_33
+#define PIN_FCC    GPIO_NUM_32
+#define PIN_MA     GPIO_NUM_25   // motor abrir
+#define PIN_MC     GPIO_NUM_4    // motor cerrar
+#define PIN_BUZZER GPIO_NUM_16
+#define PIN_LAMP   GPIO_NUM_17
+#define PIN_LEDR   GPIO_NUM_5
+
+void gpio_init_inputs(void)
+{
+    gpio_config_t io_conf = {0};
+
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+
+    io_conf.pin_bit_mask =
+        (1ULL << PIN_BA)  |
+        (1ULL << PIN_BC)  |
+        (1ULL << PIN_BP)  |
+        (1ULL << PIN_BE)  |
+        (1ULL << PIN_BR)  |
+        (1ULL << PIN_FCA) |
+        (1ULL << PIN_FCC);
+
+    gpio_config(&io_conf);
+}
+
+void gpio_init_outputs(void)
+{
+    gpio_config_t io_conf = {0};
+
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+
+    io_conf.pin_bit_mask =
+        (1ULL << PIN_MA)     |
+        (1ULL << PIN_MC)     |
+        (1ULL << PIN_BUZZER) |
+        (1ULL << PIN_LAMP)   |
+        (1ULL << PIN_LEDR);
+
+    gpio_config(&io_conf);
+}
+
+
+void leer_entradas(void)
+{
+    io.ba  = (gpio_get_level(PIN_BA)  == 0) ? Presionado : SinPresionar;
+    io.bc  = (gpio_get_level(PIN_BC)  == 0) ? Presionado : SinPresionar;
+    io.bp  = (gpio_get_level(PIN_BP)  == 0) ? Presionado : SinPresionar;
+    io.be  = (gpio_get_level(PIN_BE)  == 0) ? Presionado : SinPresionar;
+    io.br  = (gpio_get_level(PIN_BR)  == 0) ? Presionado : SinPresionar;
+    io.fca = (gpio_get_level(PIN_FCA) == 0) ? Presionado : SinPresionar;
+    io.fcc = (gpio_get_level(PIN_FCC) == 0) ? Presionado : SinPresionar;
+}
+
+void escribir_salidas(void)
+{
+    gpio_set_level(PIN_MA,     io.ma);
+    gpio_set_level(PIN_MC,     io.mc);
+    gpio_set_level(PIN_BUZZER, io.buzzer);
+    gpio_set_level(PIN_LAMP,   io.lamp);
+    gpio_set_level(PIN_LEDR,   io.ledR);
+}
