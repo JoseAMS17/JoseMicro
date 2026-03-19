@@ -1,10 +1,11 @@
-
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
+
+static const char *TAG = "FSM";
 
 /* ===================== DEFINES ===================== */
 
@@ -20,6 +21,7 @@
 #define SinPresionar    0
 
 #define TIEMPO_11S      11
+#define TIEMPO_20S      20
 #define timer           1000   // divisor para reloj
 
 #define ESTADO_INIT         0
@@ -46,7 +48,6 @@
 #define PIN_LAMP   GPIO_NUM_17
 #define PIN_LEDR   GPIO_NUM_5
 
-
 /* ===================== PROTOTYPES ===================== */
 
 int func_ESTADO_INT(void);
@@ -64,8 +65,11 @@ int ESTADO_ACTUAL    = ESTADO_INIT;
 int ESTADO_ANTERIOR  = ESTADO_INIT;
 int ESTADO_SIGUIENTE = ESTADO_INIT;
 
-int timer_11s    = 0;
-int timer_activo = 0;
+volatile int timer_11s = 0;
+volatile int timer_20s = 0;
+volatile int timer_activo = 0;
+volatile int timer_activo20 = 0;
+
 
 /* ===================== IO STRUCT ===================== */
 
@@ -74,8 +78,6 @@ struct IO
     /* inputs */
     unsigned int ba  : 1; //boton abierto
     unsigned int bc  : 1; //boton cerrado
-    unsigned int bp  : 1; //boton pare
-    unsigned int be  : 1; // boton emergencia
     unsigned int br  : 1; //boton reset
     unsigned int fca : 1; // final de carrera abierto
     unsigned int fcc : 1; //final de carrera cerrado
@@ -85,7 +87,6 @@ struct IO
     unsigned int mc     : 1; //motor cerrado
     unsigned int buzzer : 1; // buzzer
     unsigned int lamp   : 1; //lamp
-    unsigned int ledR   : 1; // led para error
 
 } io;
 
@@ -131,13 +132,12 @@ void gpio_init_outputs(void)
     gpio_config(&io_conf);
 }
 
-
 void leer_entradas(void)
 {
     io.ba  = (gpio_get_level(PIN_BA)  == 0) ? Presionado : SinPresionar;
     io.bc  = (gpio_get_level(PIN_BC)  == 0) ? Presionado : SinPresionar;
-    io.bp  = (gpio_get_level(PIN_BP)  == 0) ? Presionado : SinPresionar;
-    io.be  = (gpio_get_level(PIN_BE)  == 0) ? Presionado : SinPresionar;
+   // io.bp  = (gpio_get_level(PIN_BP)  == 0) ? Presionado : SinPresionar;
+   // io.be  = (gpio_get_level(PIN_BE)  == 0) ? Presionado : SinPresionar;
     io.br  = (gpio_get_level(PIN_BR)  == 0) ? Presionado : SinPresionar;
     io.fca = (gpio_get_level(PIN_FCA) == 0) ? Presionado : SinPresionar;
     io.fcc = (gpio_get_level(PIN_FCC) == 0) ? Presionado : SinPresionar;
@@ -149,7 +149,6 @@ void escribir_salidas(void)
     gpio_set_level(PIN_MC,     io.mc);
     gpio_set_level(PIN_BUZZER, io.buzzer);
     gpio_set_level(PIN_LAMP,   io.lamp);
-    gpio_set_level(PIN_LEDR,   io.ledR);
 }
 
 /* ===================== TIMER ===================== */
@@ -178,89 +177,97 @@ void detener_timer(void)
     timer_activo = 0;
 }
 
-/* ===================== FSM STATES ===================== */
+void timer_task2(void *pv)
+{
+    while (1)
+    {
+        if (timer_activo20 && timer_20s > 0)
+        {
+            timer_20s--;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(timer));
+    }
+}
+
+void iniciar_timer_20s(void)
+{
+    timer_20s = TIEMPO_20S;
+    timer_activo = 1;
+}
+
+void detener_timer2(void)
+{
+    timer_activo20 = 0;
+}
 
 /* ===================== FSM STATES ===================== */
 
 int func_ESTADO_INT(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDOFF;
 
     if (io.fca == Presionado && io.fcc == SinPresionar)
     {
-        printf("ESTADO ABIERTO\n");
+        ESP_LOGI(TAG, "ESTADO ABIERTO");
         return ESTADO_ABIERTO;
     }
 
     if (io.fca == SinPresionar && io.fcc == Presionado)
     {
-        printf("ESTADO CERRADO\n");
+        ESP_LOGI(TAG, "ESTADO CERRADO");
         return ESTADO_CERRADO;
     }
     else if (io.fca == SinPresionar && io.fcc == SinPresionar)
     {
-        printf("ESTADO DESCONOCIDO\n");
+        ESP_LOGI(TAG, "ESTADO DESCONOCIDO");
         return ESTADO_DESCO;
     }
     else
     {
-        printf("ESTADO ERROR\n");
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
 }
 
 int func_ESTADO_ABIERTO(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerON;
     io.lamp = lampON;
-    io.ledR = LEDOFF;
 
     if (timer_activo == 0)
     {
         iniciar_timer_11s();
     }
 
-    //if (io.br == Presionado)
-    //{
-      //  printf("ESTADO DE REINICIO\n");
-        //printf("ESTADO CERRANDO\n");
-        //return ESTADO_CERRANDO;
-   // }
-
     if (timer_activo && timer_11s == 0)
     {
         detener_timer();
-        printf("ESTADO CERRANDO\n");
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
         return ESTADO_CERRANDO;
     }
 
     if (io.fca == Presionado && io.fcc == SinPresionar && io.bc == Presionado)
     {
         detener_timer();
-        printf("ESTADO CERRANDO\n");
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
         return ESTADO_CERRANDO;
     }
     else if (io.fca == Presionado && io.fcc == SinPresionar && io.ba == Presionado)
     {
         detener_timer();
-        printf("ESTADO CERRANDO\n");
-        return ESTADO_CERRANDO;
+        ESP_LOGI(TAG, "ESTADO ABIERTO"); // cambialo puto ya lo cambiate
+        return ESTADO_ABIERTO;
     }
     else if (io.fca == Presionado && io.fcc == Presionado)
     {
-        printf("ESTADO ERROR\n");
+        detener_timer();
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
 
@@ -269,111 +276,123 @@ int func_ESTADO_ABIERTO(void)
 
 int func_ESTADO_CERRADO(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDOFF;
 
-    if (io.fcc == Presionado && io.fca == SinPresionar && io.ma == Presionado)
+    if (io.fcc == Presionado && io.fca == SinPresionar && io.ba == Presionado)
     {
-        printf("ESTADO ABRIENDO\n");
+        ESP_LOGI(TAG, "ESTADO ABRIENDO");
         return ESTADO_ABRIENDO;
     }
 
-    if (io.br == Presionado)
+    if (io.fcc == Presionado && io.br == Presionado)
     {
-        printf("ESTADO DE REINICIO\n");
-        printf("ESTADO CERRANDO\n");
-        return ESTADO_CERRANDO;
+        ESP_LOGI(TAG, "ESTADO DE REINICIO");
+        ESP_LOGI(TAG, "ESTADO INIT");
+        return ESTADO_INIT;
     }
-    else if (io.fca == Presionado && io.ma == Presionado)
+    else if (io.fca == Presionado && io.fcc == Presionado)
     {
-        printf("ESTADO ERROR\n");
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
     else
     {
-        printf("ESTADO CERRADO\n");
+        ESP_LOGI(TAG, "ESTADO CERRADO");
         return ESTADO_CERRADO;
     }
 }
 
 int func_ESTADO_ABRIENDO(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_ON;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDOFF;
+
+    if (timer_activo20 == 0)
+    {
+        iniciar_timer_20s();
+    }
+
+    if (timer_activo20 && timer_20s == 0)
+    {
+        detener_timer2();
+        ESP_LOGI(TAG, "ESTADO STOP");
+        return ESTADO_STOP;
+    }
 
     if (io.fca == Presionado && io.fcc == SinPresionar)
     {
-        printf("ESTADO ABIERTO\n");
+        ESP_LOGI(TAG, "ESTADO ABIERTO");
         return ESTADO_ABIERTO;
     }
 
-    if (io.br == Presionado)
+    if (io.br == Presionado && io.fca == SinPresionar && io.fcc == SinPresionar)
     {
-        printf("ESTADO DE REINICIO\n");
-        printf("ESTADO CERRANDO\n");
-        return ESTADO_CERRANDO;
+        ESP_LOGI(TAG, "ESTADO DE REINICIO");
+        ESP_LOGI(TAG, "ESTADO INIT");
+        return ESTADO_INIT;
     }
     else if (io.fca == SinPresionar &&
              io.fcc == SinPresionar &&
-             (io.ba || io.bc || io.be || io.bp))
+             (io.ba || io.bc )) // aqui puto
     {
-        printf("ESTADO STOP\n");
+        ESP_LOGI(TAG, "ESTADO STOP");
         return ESTADO_STOP;
     }
     else if (io.fca == Presionado && io.fcc == Presionado)
     {
-        printf("ESTADO ERROR\n");
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
     else if (io.fca == SinPresionar && io.fcc == Presionado)
     {
-        printf("ESTADO ERROR\n");
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
     else
     {
-        printf("ESTADO ABRIENDO\n");
+        ESP_LOGI(TAG, "ESTADO ABRIENDO");
         return ESTADO_ABRIENDO;
     }
 }
 
 int func_ESTADO_CERRANDO(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_ON;
     io.buzzer = buzzerON;
     io.lamp = lampOff;
-    io.ledR = LEDOFF;
+
+    if (timer_activo20 == 0)
+    {
+        iniciar_timer_20s();
+    }
+
+    if (timer_activo20 && timer_20s == 0)
+    {
+        detener_timer();
+        ESP_LOGI(TAG, "ESTADO STOP");
+        return ESTADO_STOP;
+    }
 
     if (io.fca == SinPresionar && io.fcc == Presionado)
     {
-        printf("ESTADO CERRADO\n");
+        ESP_LOGI(TAG, "ESTADO CERRADO");
         return ESTADO_CERRADO;
     }
     else if ((io.fca == SinPresionar && io.fcc == SinPresionar) ||
-             (io.ba || io.bc || io.be || io.bp))
+             (io.ba || io.bc ))
     {
-        printf("ESTADO STOP\n");
+        ESP_LOGI(TAG, "ESTADO STOP");
         return ESTADO_STOP;
     }
-    else if (io.fca == SinPresionar && io.fcc == Presionado)
+    else if (io.fca == Presionado && io.fcc == Presionado)
     {
-        printf("ESTADO ERROR\n");
+        ESP_LOGI(TAG, "ESTADO ERROR");
         return ESTADO_ERROR;
     }
 
@@ -386,15 +405,11 @@ int func_ESTADO_ERROR(void)
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDON;
-
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
 
     if (io.br == Presionado)
     {
-        printf("ESTADO DE REINICIO\n");
-        printf("ESTADO CERRANDO\n");
+        ESP_LOGI(TAG, "ESTADO DE REINICIO");
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
         return ESTADO_CERRANDO;
     }
 
@@ -403,43 +418,48 @@ int func_ESTADO_ERROR(void)
 
 int func_ESTADO_DESCO(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDON;
 
-    printf("ESTADO CERRANDO\n");
+    ESP_LOGI(TAG, "ESTADO CERRANDO");
     return ESTADO_CERRANDO;
 }
 
 int func_ESTADO_STOP(void)
 {
-    ESTADO_ANTERIOR = ESTADO_ACTUAL;
-    ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
-
     io.ma = MOTOR_OFF;
     io.mc = MOTOR_OFF;
     io.buzzer = buzzerOFF;
     io.lamp = lampOff;
-    io.ledR = LEDOFF;
 
     if (io.ba == Presionado &&
         io.bc == SinPresionar &&
         io.fca == SinPresionar &&
         io.fcc == SinPresionar)
     {
-        printf("ESTADO ABRIENDO\n");
+        ESP_LOGI(TAG, "ESTADO ABRIENDO");
         return ESTADO_ABRIENDO;
+    }
+
+    if (timer_activo == 0)
+    {
+        iniciar_timer_11s();
+    }
+
+    if (timer_activo && timer_11s == 0)
+    {
+        detener_timer();
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
+        return ESTADO_CERRANDO;
     }
 
     if (io.br == Presionado)
     {
-        printf("ESTADO DE REINICIO\n");
-        printf("ESTADO CERRANDO\n");
+        detener_timer();
+        ESP_LOGI(TAG, "ESTADO DE REINICIO");
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
         return ESTADO_CERRANDO;
     }
     else if (io.ba == SinPresionar &&
@@ -447,13 +467,13 @@ int func_ESTADO_STOP(void)
              io.fca == SinPresionar &&
              io.fcc == SinPresionar)
     {
-        printf("ESTADO CERRANDO\n");
+        detener_timer();
+        ESP_LOGI(TAG, "ESTADO CERRANDO");
         return ESTADO_CERRANDO;
     }
 
     return ESTADO_STOP;
 }
-
 
 /* ===================== MAIN ===================== */
 
@@ -461,7 +481,8 @@ void app_main(void)
 {
     gpio_init_inputs();
     gpio_init_outputs();
-    xTaskCreate(timer_task, "timer_1s", 2048, NULL, 5, NULL);
+    xTaskCreate(timer_task, "timer_11s", 2048, NULL, 5, NULL);
+    xTaskCreate(timer_task2, "timer_20s", 2048, NULL, 5, NULL);
 
     while (true)
     {
@@ -484,11 +505,11 @@ void app_main(void)
         else
             ESTADO_SIGUIENTE = func_ESTADO_ERROR();
 
+        escribir_salidas();
+
         ESTADO_ANTERIOR = ESTADO_ACTUAL;
         ESTADO_ACTUAL   = ESTADO_SIGUIENTE;
 
-        escribir_salidas();   
-
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
