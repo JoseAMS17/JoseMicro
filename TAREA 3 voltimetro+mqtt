@@ -1,0 +1,175 @@
+#include <stdio.h>
+#include <math.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "mqtt_client.h"
+
+/* ================= CONFIG ADC ================= */
+#define ADC_CHANNEL ADC1_CHANNEL_6   // GPIO34
+#define ADC_ATTEN   ADC_ATTEN_DB_12
+#define ADC_WIDTH   ADC_WIDTH_BIT_12
+#define SAMPLES     1000
+
+/* ================= CONFIG WIFI ================= */
+#define WIFI_SSID      "Campus_ITLA"      // 🔹 NOMBRE DE RED
+#define WIFI_PASS      ""                 // 🔹 PASSWORD (vacío si es abierta)
+
+/* ================= CONFIG MQTT ================= */
+#define MQTT_BROKER    "mqtt://broker.hivemq.com"   // 🔹 BROKER
+#define MQTT_PORT      1883                         // 🔹 PUERTO
+#define MQTT_TOPIC     "itla/mecatronica/vrms"      // 🔹 TOPICO DONDE PUBLICAS
+
+static esp_mqtt_client_handle_t client;
+static bool mqtt_connected = false;
+
+/* ================= EVENTO MQTT ================= */
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_mqtt_event_handle_t event = event_data;
+
+    switch (event->event_id)
+    {
+        case MQTT_EVENT_CONNECTED:
+            printf("MQTT CONECTADO\n");
+            mqtt_connected = true;
+            break;
+
+        case MQTT_EVENT_DISCONNECTED:
+            printf("MQTT DESCONECTADO\n");
+            mqtt_connected = false;
+            break;
+
+        default:
+            break;
+    }
+}
+
+/* ================= INICIALIZAR RED ================= */
+void init_network()
+{
+    /* 🔹 INICIALIZAR NVS (OBLIGATORIO PARA WIFI) */
+    nvs_flash_init();
+
+    /* 🔹 INICIALIZAR RED */
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
+
+    /* 🔹 CONFIG WIFI */
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS,
+            .threshold.authmode = WIFI_AUTH_OPEN  // 🔹 CAMBIA SI USAS WPA2
+        }
+    };
+
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    esp_wifi_start();
+    esp_wifi_connect();
+
+    /* 🔹 CONFIG MQTT */
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = MQTT_BROKER,   // 🔹 URL DEL BROKER
+        .broker.address.port = MQTT_PORT     // 🔹 PUERTO MQTT
+    };
+
+    client = esp_mqtt_client_init(&mqtt_cfg);
+
+    /* 🔹 REGISTRAR EVENTOS MQTT */
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+
+    /* 🔹 INICIAR MQTT */
+    esp_mqtt_client_start(client);
+}
+
+/* ================= MAIN ================= */
+void app_main(void)
+{
+    init_network();
+
+    /* 🔹 CONFIG ADC */
+    adc1_config_width(ADC_WIDTH);
+    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+
+    esp_adc_cal_characteristics_t adc_chars;
+    esp_adc_cal_characterize(
+        ADC_UNIT_1,
+        ADC_ATTEN,
+        ADC_WIDTH,
+        1100,
+        &adc_chars
+    );
+
+    printf("Iniciando medición RMS...\n");
+
+    while (1)
+    {
+        uint32_t raw;
+        float voltage;
+        float sum = 0;
+        float offset = 0;
+
+        /* ================= OFFSET ================= */
+        for (int i = 0; i < SAMPLES; i++)
+        {
+            raw = adc1_get_raw(ADC_CHANNEL);
+            voltage = esp_adc_cal_raw_to_voltage(raw, &adc_chars) / 1000.0;
+            offset += voltage;
+
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        offset /= SAMPLES;
+
+        /* ================= RMS ================= */
+        for (int i = 0; i < SAMPLES; i++)
+        {
+            raw = adc1_get_raw(ADC_CHANNEL);
+            voltage = esp_adc_cal_raw_to_voltage(raw, &adc_chars) / 1000.0;
+
+            float v = voltage - offset;
+            sum += v * v;
+
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        float vrms = sqrt(sum / SAMPLES);
+
+        printf("Offset: %.3f V | Vrms: %.3f V\n", offset, vrms);
+
+        /* ================= MQTT PUBLICAR ================= */
+        if (mqtt_connected)   // 🔹 SOLO PUBLICA SI ESTÁ CONECTADO
+        {
+            char payload[64];
+
+            // 🔹 FORMATO JSON
+            sprintf(payload, "{\"vrms\": %.3f, \"offset\": %.3f}", vrms, offset);
+
+            esp_mqtt_client_publish(
+                client,
+                MQTT_TOPIC,   // 🔹 TOPICO
+                payload,      // 🔹 MENSAJE
+                0,
+                1,            // QoS
+                0
+            );
+        }
+        else
+        {
+            printf("MQTT NO CONECTADO\n");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
